@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     SQS_QUEUE_URL: str = "https://sqs.us-east-1.amazonaws.com/123456789/pipelineiq-webhooks"
     BEDROCK_MODEL_ID: str = "amazon.nova-pro-v1:0"
 
+    # Cross-account Bedrock access (company account). When set, the API assumes
+    # this role before Bedrock calls (Pipeline Chat). Empty = use the pod's IRSA
+    # role directly (same account). Mirrors the worker's setting.
+    BEDROCK_CROSS_ACCOUNT_ROLE_ARN: str = ""
+
     ENVIRONMENT: str = "development"
 
     SECRET_KEY: str = INSECURE_DEFAULT_SECRET

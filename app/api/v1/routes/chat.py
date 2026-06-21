@@ -145,7 +145,7 @@ async def chat(
     Convert a plain-English question about CI/CD data into SQL via Bedrock,
     execute it safely, and return a human-readable answer with the raw rows.
     """
-    from app.services.bedrock_client import BedrockRemediationClient, _bedrock_boto3_kwargs
+    from app.services.bedrock_client import _bedrock_boto3_kwargs
     from app.core.config import settings
 
     bedrock_client = boto3.client(
