@@ -153,9 +153,25 @@ async def chat(
         region_name=settings.AWS_REGION,
         **_bedrock_boto3_kwargs(),
     )
-    model_id = settings.BEDROCK_MODEL_ID
+    model_id = settings.BEDROCK_CHAT_MODEL_ID
 
-    sql, explanation = _call_bedrock_for_sql(req.message, model_id, bedrock_client)
+    # Generate SQL. A Bedrock throttle here is surfaced as a friendly message
+    # (not a 500) so the UI can tell the user to retry later.
+    try:
+        sql, explanation = _call_bedrock_for_sql(req.message, model_id, bedrock_client)
+    except bedrock_client.exceptions.ThrottlingException:
+        logger.warning("Bedrock throttled chat request for user %s", user.id)
+        return ChatResponse(
+            answer="The AI service is rate-limited right now (daily token quota reached). Please try again later.",
+            sql=None, data=None,
+            error="Bedrock throttling — daily token quota reached.",
+        )
+    except Exception as exc:
+        logger.warning("Chat SQL generation failed for user %s: %s", user.id, exc)
+        return ChatResponse(
+            answer="I couldn't process that question right now. Please try again.",
+            sql=None, data=None, error=str(exc),
+        )
 
     # No SQL needed — just a direct explanation (greetings, meta questions)
     if not sql:
@@ -172,8 +188,28 @@ async def chat(
     try:
         result = await db.execute(text(sql))
         rows = [dict(row._mapping) for row in result.fetchmany(50)]
+    except Exception as exc:
+        logger.warning("Chat SQL execution failed: %s | sql=%r", exc, sql)
+        return ChatResponse(
+            answer="I ran into an error executing that query.",
+            sql=sql,
+            data=None,
+            error=str(exc),
+        )
 
-        # Ask Bedrock to summarize the results in plain English
+    # Serialize rows — convert UUIDs/datetimes to strings
+    serializable_rows = [
+        {
+            k: str(v) if not isinstance(v, (int, float, bool, type(None), str)) else v
+            for k, v in row.items()
+        }
+        for row in rows
+    ]
+
+    # Summarize the results in plain English — best-effort. If Bedrock is
+    # throttled or errors here, we still return the query + data rather than
+    # losing a successful result to a summary failure.
+    try:
         summary_prompt = (
             f"Question: {req.message}\n"
             f"SQL: {sql}\n"
@@ -186,22 +222,8 @@ async def chat(
             inferenceConfig={"maxTokens": 256},
         )
         answer = summary_response["output"]["message"]["content"][0]["text"].strip()
-
-        # Serialize rows — convert UUIDs/datetimes to strings
-        serializable_rows = []
-        for row in rows:
-            serializable_rows.append({
-                k: str(v) if not isinstance(v, (int, float, bool, type(None), str)) else v
-                for k, v in row.items()
-            })
-
-        return ChatResponse(answer=answer, sql=sql, data=serializable_rows)
-
     except Exception as exc:
-        logger.warning("Chat SQL execution failed: %s | sql=%r", exc, sql)
-        return ChatResponse(
-            answer="I ran into an error executing that query.",
-            sql=sql,
-            data=None,
-            error=str(exc),
-        )
+        logger.warning("Chat summary failed (returning raw rows): %s", exc)
+        answer = f"Found {len(rows)} row(s) for your query. (AI summary unavailable right now.)"
+
+    return ChatResponse(answer=answer, sql=sql, data=serializable_rows)

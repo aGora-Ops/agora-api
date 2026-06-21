@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     SQS_QUEUE_URL: str = "https://sqs.us-east-1.amazonaws.com/123456789/pipelineiq-webhooks"
     BEDROCK_MODEL_ID: str = "amazon.nova-pro-v1:0"
 
+    # Pipeline Chat uses a lighter model than the remediation pipeline — SQL
+    # generation + a one-line summary don't need nova-pro, and the smaller
+    # model is far cheaper on tokens and has its own service quota bucket
+    # (so a nova-pro daily-token throttle doesn't take Chat down with it).
+    BEDROCK_CHAT_MODEL_ID: str = "amazon.nova-lite-v1:0"
+
     # Cross-account Bedrock access (company account). When set, the API assumes
     # this role before Bedrock calls (Pipeline Chat). Empty = use the pod's IRSA
     # role directly (same account). Mirrors the worker's setting.
