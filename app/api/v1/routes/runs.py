@@ -77,7 +77,9 @@ async def get_run_logs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Return the GitHub log download URL for a workflow run."""
+    """Return the scrubbed log text for a workflow run (fetched live from GitHub)."""
+    from app.core.scrubber import scrub
+
     result = await db.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))
     db_run = result.scalar_one_or_none()
     if not db_run:
@@ -85,13 +87,15 @@ async def get_run_logs(
 
     github = GitHubService(decrypt_token(user.access_token_encrypted))
     try:
-        logs_url = await github.get_run_logs_url(db_run.org_login, db_run.repo_name, db_run.github_run_id)
-        return {"logs_url": logs_url}
+        raw_logs = await github.get_run_logs_text(
+            db_run.org_login, db_run.repo_name, db_run.github_run_id
+        )
+        return {"logs": scrub(raw_logs)}
     except Exception as exc:
-        logger.warning("Failed to fetch logs URL for run %s: %s", run_id, exc)
+        logger.warning("Failed to fetch logs for run %s: %s", run_id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch logs URL from GitHub.",
+            detail="Failed to fetch logs from GitHub. Logs may have expired (GitHub keeps them ~90 days).",
         )
     finally:
         await github.aclose()

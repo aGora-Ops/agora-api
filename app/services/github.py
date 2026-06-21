@@ -90,6 +90,35 @@ class GitHubService:
         response.raise_for_status()
         return str(response.url)
 
+    async def get_run_logs_text(
+        self, owner: str, repo: str, run_id: int, max_lines: int = 1000
+    ) -> str:
+        """Download the run's log archive (zip), extract all .txt logs, and
+        return the concatenated text (last max_lines lines)."""
+        import io
+        import zipfile
+
+        response = await self._client.get(
+            f"/repos/{owner}/{repo}/actions/runs/{run_id}/logs",
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+
+        lines: list[str] = []
+        try:
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                for name in sorted(zf.namelist()):
+                    if name.endswith(".txt"):
+                        content = zf.read(name).decode("utf-8", errors="replace")
+                        lines.append(f"===== {name} =====")
+                        lines.extend(content.splitlines())
+        except zipfile.BadZipFile:
+            lines = response.text.splitlines()
+
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        return "\n".join(lines)
+
     async def get_workflow_file(
         self, owner: str, repo: str, path: str, ref: str
     ) -> str:
