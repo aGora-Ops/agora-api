@@ -5,6 +5,7 @@ Accepts a plain-English question about the user's CI/CD data, converts it to
 safe read-only SQL via Bedrock, executes it against the database, and returns
 a conversational answer plus the raw data rows.
 """
+import json
 import logging
 import re
 import time
@@ -85,31 +86,59 @@ RULES:
 
 # ── Bedrock helper ────────────────────────────────────────────────────────────
 
+def _extract_json_object(text: str) -> dict | None:
+    """Pull the first JSON object out of a model response.
+
+    Smaller models (e.g. nova-lite) often wrap the JSON in markdown fences or
+    surrounding prose ("Here is the query: ```json {...} ```"), which breaks a
+    naive json.loads. Try a fenced block first, then the first balanced-looking
+    {...} span, then the whole string.
+    """
+    candidates = []
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fenced:
+        candidates.append(fenced.group(1))
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace:
+        candidates.append(brace.group(0))
+    candidates.append(text)
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
 def _call_bedrock_for_sql(question: str, model_id: str, client) -> tuple[str | None, str]:
     """Ask Bedrock to convert a question to SQL. Returns (sql, explanation)."""
     messages = [{"role": "user", "content": [{"text": question}]}]
+    raw = ""
     for attempt in range(3):
         try:
             response = client.converse(
                 modelId=model_id,
                 system=[{"text": _SYSTEM_PROMPT}],
                 messages=messages,
-                inferenceConfig={"maxTokens": 512},
+                inferenceConfig={"maxTokens": 512, "temperature": 0},
             )
-            raw: str = response["output"]["message"]["content"][0]["text"].strip()
-            if raw.startswith("```"):
-                raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```")).strip()
-            import json
-            parsed = json.loads(raw)
-            return parsed.get("sql"), parsed.get("explanation", "")
         except client.exceptions.ThrottlingException:
             if attempt < 2:
                 time.sleep(2 ** (attempt + 1))
-            else:
-                raise
-        except Exception as exc:
-            logger.warning("Bedrock chat SQL generation failed: %s | raw=%r", exc, locals().get("raw", ""))
-            return None, "I couldn't generate a query for that question."
+                continue
+            raise
+
+        raw = response["output"]["message"]["content"][0]["text"].strip()
+        parsed = _extract_json_object(raw)
+        if parsed is not None:
+            return parsed.get("sql"), parsed.get("explanation", "")
+        # Model returned a bare SQL statement without the JSON wrapper.
+        if raw.lstrip().upper().startswith("SELECT"):
+            return raw.rstrip(";"), "Generated query."
+        logger.warning("Bedrock chat: could not parse model output as JSON | raw=%r", raw)
+        return None, "I couldn't generate a query for that question."
     return None, "Service unavailable."
 
 

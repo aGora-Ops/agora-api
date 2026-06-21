@@ -1,6 +1,15 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+
+# Surface application logs (logger.info/warning/...) to stdout. Without this
+# only uvicorn's access logs appear and app-level warnings vanish, making
+# issues like Bedrock/SQL failures invisible.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
