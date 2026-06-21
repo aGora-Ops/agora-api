@@ -70,9 +70,14 @@ async def get_analytics(
         for row in trend_result.all()
     ]
 
+    # A fix is "raised" once a PR has been opened for it. The Remediation
+    # status enum is pending|analyzing|analyzed|pr_raised|helpful|failed —
+    # there is no "completed", so the old check always returned 0.
     remediations_raised = (
         await db.execute(
-            select(func.count()).select_from(Remediation).where(Remediation.status == "completed")
+            select(func.count())
+            .select_from(Remediation)
+            .where(Remediation.status.in_(["pr_raised", "helpful"]))
         )
     ).scalar_one() or 0
 
