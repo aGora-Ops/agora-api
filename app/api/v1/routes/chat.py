@@ -44,8 +44,10 @@ PostgreSQL database tables (READ-ONLY access — SELECT only):
 TABLE: workflow_runs
   id UUID PK, github_run_id BIGINT, org_login TEXT, repo_name TEXT,
   workflow_name TEXT, workflow_file TEXT, branch TEXT, head_sha TEXT,
-  status TEXT, conclusion TEXT (values: success|failure|cancelled|skipped|null),
+  status TEXT (lifecycle state ONLY: queued|in_progress|completed — this is NOT the outcome),
+  conclusion TEXT (the OUTCOME: success|failure|cancelled|skipped|null),
   started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, html_url TEXT, created_at TIMESTAMPTZ
+  -- IMPORTANT: a run FAILED when conclusion = 'failure'. Never use status for outcome.
 
 TABLE: remediations
   id UUID PK, workflow_run_id UUID FK→workflow_runs.id,
@@ -81,6 +83,9 @@ RULES:
 4. Limit results to 50 rows unless the user specifies otherwise.
 5. Use ILIKE for case-insensitive text matching.
 6. Timestamps are UTC. Use NOW() - INTERVAL '7 days' for "last week" etc.
+7. "Failures" / "failed runs" mean workflow_runs.conclusion = 'failure'. The
+   `status` column is the lifecycle state (queued/in_progress/completed), never
+   the outcome — do not filter failures on `status`.
 """
 
 
