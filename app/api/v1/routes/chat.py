@@ -113,15 +113,22 @@ def _call_bedrock_for_sql(question: str, model_id: str, client) -> tuple[str | N
     return None, "Service unavailable."
 
 
+_FORBIDDEN_SQL_KEYWORDS = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
+                           "TRUNCATE", "GRANT", "REVOKE", "EXECUTE", "CALL", "MERGE", "COPY"]
+
+
 def _is_safe_sql(sql: str) -> bool:
-    """Reject any SQL that isn't a plain SELECT."""
-    normalized = re.sub(r"\s+", " ", sql.strip().upper())
-    # Must start with SELECT and must not contain any write keywords
-    if not normalized.startswith("SELECT"):
+    """Reject any SQL that isn't a single, plain SELECT statement."""
+    normalized = re.sub(r"\s+", " ", sql.strip()).rstrip(";").strip()
+    upper = normalized.upper()
+    if not upper.startswith("SELECT"):
         return False
-    forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
-                 "TRUNCATE", "GRANT", "REVOKE", "EXECUTE", "CALL"]
-    return not any(kw in normalized for kw in forbidden)
+    # Reject stacked statements (e.g. "SELECT 1; DELETE FROM users")
+    if ";" in normalized:
+        return False
+    # Word-boundary match so legitimate identifiers like created_at / updated_at
+    # don't trip the "CREATE"/"UPDATE" substrings.
+    return not any(re.search(rf"\b{kw}\b", upper) for kw in _FORBIDDEN_SQL_KEYWORDS)
 
 
 # ── Route ─────────────────────────────────────────────────────────────────────
