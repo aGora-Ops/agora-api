@@ -28,7 +28,10 @@ async def github_login(request: Request) -> RedirectResponse:
     params = {
         "client_id": settings.GITHUB_CLIENT_ID,
         "redirect_uri": settings.GITHUB_REDIRECT_URI,
-        "scope": "repo,admin:org_hook,read:org",
+        # workflow scope is required to create/update files under .github/workflows/ —
+        # without it GitHub 404s the Contents API write (masked, like private-repo access)
+        # even though repo grants write everywhere else.
+        "scope": "repo,workflow,admin:org_hook,read:org",
         "state": state,
     }
     url = f"{GITHUB_AUTH_URL}?{urlencode(params)}"

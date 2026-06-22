@@ -81,16 +81,16 @@ def _looks_like_aggregate_question(message: str) -> bool:
 
 async def _answer_with_analytics(db: AsyncSession, message: str) -> ChatResponse:
     """Answer count/ranking/time-window questions directly from workflow_runs."""
-    text = message.lower()
+    message_lower = message.lower()
     since = None
-    if "yesterday" in text:
+    if "yesterday" in message_lower:
         now = datetime.now(timezone.utc)
         since = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         until = since + timedelta(days=1)
-    elif "last 7" in text or "last week" in text:
+    elif "last 7" in message_lower or "last week" in message_lower:
         since = datetime.now(timezone.utc) - timedelta(days=7)
         until = datetime.now(timezone.utc)
-    elif "last 30" in text or "last month" in text:
+    elif "last 30" in message_lower or "last month" in message_lower:
         since = datetime.now(timezone.utc) - timedelta(days=30)
         until = datetime.now(timezone.utc)
 
@@ -127,7 +127,7 @@ async def _answer_with_analytics(db: AsyncSession, message: str) -> ChatResponse
     leader = repo_rows[0]
     answer = (
         f"{leader.repo_name} had the most failures"
-        + (" yesterday" if "yesterday" in text else "")
+        + (" yesterday" if "yesterday" in message_lower else "")
         + f" with {leader.failures} failures."
     )
     sources = [
