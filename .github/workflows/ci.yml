@@ -55,7 +55,7 @@ jobs:
     with:
       service_name: agora-api
       image_tag: ${{ needs.push.outputs.tag }}
-      target_branch: develop
+      target_branch: main
     secrets: inherit
 
   notify:
