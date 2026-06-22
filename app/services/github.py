@@ -148,11 +148,26 @@ class GitHubService:
             raise
 
     async def create_fix_branch(self, owner: str, repo: str, base_sha: str, branch_name: str) -> None:
-        """Create a new branch from base_sha."""
-        await self._post(
-            f"/repos/{owner}/{repo}/git/refs",
-            json={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
-        )
+        """Create a new branch from base_sha.
+
+        Idempotent: if the branch already exists (e.g. left over from a prior
+        Raise PR attempt that failed downstream), reset it to base_sha instead
+        of erroring — a retry must not require the user to delete state first.
+        """
+        try:
+            await self._post(
+                f"/repos/{owner}/{repo}/git/refs",
+                json={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 422 and "already exists" in exc.response.text:
+                response = await self._client.patch(
+                    f"/repos/{owner}/{repo}/git/refs/heads/{branch_name}",
+                    json={"sha": base_sha, "force": True},
+                )
+                response.raise_for_status()
+                return
+            raise
 
     async def commit_fix(
         self,
