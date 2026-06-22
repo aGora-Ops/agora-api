@@ -7,6 +7,8 @@ synthesize an answer grounded in that retrieved context. No SQL generation —
 answers come from the indexed corpus of real failures + fixes.
 """
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from fastapi import APIRouter, Depends
@@ -61,6 +63,80 @@ def _synthesize(question: str, context: str, model_id: str, client) -> str:
     return resp["output"]["message"]["content"][0]["text"].strip()
 
 
+def _looks_like_aggregate_question(message: str) -> bool:
+    text = message.lower()
+    patterns = [
+        r"\bmost\b",
+        r"\btop\b",
+        r"\bhow many\b",
+        r"\bcount\b",
+        r"\btrend\b",
+        r"\byesterday\b",
+        r"\blast (day|week|month|7 days|30 days)\b",
+        r"\bwhich repo\b",
+        r"\bwhat repo\b",
+    ]
+    return any(re.search(p, text) for p in patterns)
+
+
+async def _answer_with_analytics(db: AsyncSession, message: str) -> ChatResponse:
+    """Answer count/ranking/time-window questions directly from workflow_runs."""
+    text = message.lower()
+    since = None
+    if "yesterday" in text:
+        now = datetime.now(timezone.utc)
+        since = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        until = since + timedelta(days=1)
+    elif "last 7" in text or "last week" in text:
+        since = datetime.now(timezone.utc) - timedelta(days=7)
+        until = datetime.now(timezone.utc)
+    elif "last 30" in text or "last month" in text:
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        until = datetime.now(timezone.utc)
+
+    filters = ["WorkflowRun.conclusion == 'failure'"]
+    params: dict = {}
+    where_clause = "WHERE conclusion = 'failure'"
+    if since:
+        where_clause += " AND created_at >= :since AND created_at < :until"
+        params["since"] = since
+        params["until"] = until
+
+    repo_rows = (
+        await db.execute(
+            text(
+                f"""
+                SELECT repo_name, COUNT(*) AS failures
+                FROM workflow_runs
+                {where_clause}
+                GROUP BY repo_name
+                ORDER BY failures DESC, repo_name ASC
+                LIMIT 10
+                """
+            ),
+            params,
+        )
+    ).fetchall()
+
+    if not repo_rows:
+        return ChatResponse(
+            answer="I couldn't find any workflow failure data for that time window.",
+            data=[],
+        )
+
+    leader = repo_rows[0]
+    answer = (
+        f"{leader.repo_name} had the most failures"
+        + (" yesterday" if "yesterday" in text else "")
+        + f" with {leader.failures} failures."
+    )
+    sources = [
+        {"repo": row.repo_name, "category": "—", "relevance": float(row.failures), "summary": f"{row.failures} failures"}
+        for row in repo_rows
+    ]
+    return ChatResponse(answer=answer, data=sources)
+
+
 @router.post("/", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -71,6 +147,9 @@ async def chat(
     from app.core.config import settings
     from app.services.bedrock_client import _bedrock_boto3_kwargs
     from app.services.embeddings import embed_text, to_pgvector
+
+    if _looks_like_aggregate_question(req.message):
+        return await _answer_with_analytics(db, req.message)
 
     # 1. Embed the question.
     try:
