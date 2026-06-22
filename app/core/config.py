@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # cheaper model is preferred.
     BEDROCK_CHAT_MODEL_ID: str = "amazon.nova-pro-v1:0"
 
-    # Cross-account Bedrock access (company account). When set, the API assumes
+    # Cross-account Bedrock access (Bedrock account). When set, the API assumes
     # this role before Bedrock calls (Pipeline Chat). Empty = use the pod's IRSA
     # role directly (same account). Mirrors the worker's setting.
     BEDROCK_CROSS_ACCOUNT_ROLE_ARN: str = ""

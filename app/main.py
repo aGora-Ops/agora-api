@@ -69,6 +69,11 @@ app = FastAPI(
     version="0.1.0",
     description="AI-powered GitHub Actions remediation platform",
     lifespan=lifespan,
+    # Swagger/ReDoc/OpenAPI schema are dev-only — don't expose the API's
+    # internal shape publicly once deployed to production.
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
 )
 
 app.state.limiter = limiter
