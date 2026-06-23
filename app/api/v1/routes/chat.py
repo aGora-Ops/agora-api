@@ -149,11 +149,12 @@ async def _answer_with_investigator(message: str) -> ChatResponse:
             error=str(exc),
         )
 
-    sources = [
-        {"repo": "—", "category": tc["tool"], "relevance": 1.0 if tc["ok"] else 0.0, "summary": str(tc["input"])}
-        for tc in result.get("tool_calls", [])
-    ]
-    return ChatResponse(answer=result.get("answer", ""), data=sources)
+    # No sources table here — the answer text itself is the refined,
+    # citation-bearing response (the investigator's prompt requires it to
+    # name repos/dates in prose, not bare tool calls). A row per MCP tool
+    # call would just be internal bookkeeping with nothing a user could act
+    # on, unlike the count path's table, which shows real per-repo numbers.
+    return ChatResponse(answer=result.get("answer", ""), data=None)
 
 
 @router.post("/", response_model=ChatResponse)
