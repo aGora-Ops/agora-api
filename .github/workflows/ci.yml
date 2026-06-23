@@ -48,7 +48,7 @@ jobs:
   push:
     name: Push to ECR
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'
     uses: aGora-Ops/agora-workflows/.github/workflows/push-to-ecr.yml@main
     with:
       service_name: agora-api
@@ -60,12 +60,11 @@ jobs:
   helm-update:
     name: Update Helm Tag
     needs: push
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'
     uses: aGora-Ops/agora-workflows/.github/workflows/helm-update.yml@main
     with:
       service_name: agora-api
       image_tag: ${{ needs.push.outputs.tag }}
-      target_branch: main
     secrets: inherit
 
   notify:
