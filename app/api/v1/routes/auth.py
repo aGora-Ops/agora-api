@@ -138,8 +138,9 @@ async def github_callback(
         samesite="lax",
         max_age=60 * 60 * 24 * settings.ACCESS_TOKEN_EXPIRE_DAYS,
         secure=settings.cookie_secure,
+        path="/",
     )
-    redirect.delete_cookie("oauth_state")
+    redirect.delete_cookie("oauth_state", path="/")
     return redirect
 
 @router.get("/me", response_model=UserMe)
@@ -176,5 +177,5 @@ async def logout(response: Response, user: User = Depends(get_current_user)) -> 
     except Exception as exc:
         logger.warning("GitHub token revocation failed for user %s: %s", user.id, exc)
 
-    response.delete_cookie(AUTH_COOKIE_NAME, httponly=True, samesite="lax", secure=settings.cookie_secure)
+    response.delete_cookie(AUTH_COOKIE_NAME, httponly=True, samesite="lax", secure=settings.cookie_secure, path="/")
     return {"message": "Logged out successfully"}
