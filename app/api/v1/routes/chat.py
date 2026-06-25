@@ -233,10 +233,11 @@ async def chat(
     # docs). Falls back to the investigator agent when KB is empty or errors.
     if settings.BEDROCK_KB_ID:
         import boto3 as _boto3
+        # KB and its agent-runtime live in the infra account — use the pod's
+        # IRSA role directly, not the cross-account Bedrock role.
         kb_client = _boto3.client(
             "bedrock-agent-runtime",
             region_name=settings.AWS_REGION,
-            **_bedrock_boto3_kwargs(),
         )
         kb_answer = await _answer_with_kb(
             req.message, settings.BEDROCK_KB_ID, settings.BEDROCK_MODEL_ID, kb_client
