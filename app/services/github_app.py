@@ -27,7 +27,7 @@ async def get_installation_token(installation_id: int) -> str:
         r = await client.post(
             f"{_GH_API}/app/installations/{installation_id}/access_tokens",
             headers=headers,
-            json={"permissions": {"contents": "write", "pull_requests": "write"}},
+            json={"permissions": {"contents": "write", "pull_requests": "write", "workflows": "write"}},
         )
         r.raise_for_status()
         return r.json()["token"]
