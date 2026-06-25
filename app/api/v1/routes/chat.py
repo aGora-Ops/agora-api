@@ -4,12 +4,9 @@ POST /api/v1/chat
 A cheap Nova call first classifies the question as `count` (a literal
 counting/ranking question over workflow_runs) or `investigate` (anything
 else). `count` answers directly from a SQL GROUP BY. `investigate` hands off
-to agora-worker's Investigator Agent (app/agents/investigator.py there) — a
-bounded tool-calling loop that searches remediation history and reasons
-across multiple past runs, replacing the previous single-shot
-embed-then-synthesize RAG call.
+to agora-worker's Investigator Agent via HTTP — a bounded tool-calling loop
+that searches remediation history and reasons across multiple past runs.
 """
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -129,60 +126,6 @@ async def _answer_with_analytics(db: AsyncSession, message: str) -> ChatResponse
     return ChatResponse(answer=answer, data=sources)
 
 
-async def _answer_with_kb(message: str, kb_id: str, model_id: str, client) -> ChatResponse | None:
-    """Query the Bedrock Knowledge Base with retrieve-and-generate.
-
-    Returns None if KB is not populated or returns no results, so the caller
-    can fall back to the investigator agent.
-    """
-    try:
-        resp = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.retrieve_and_generate(
-                input={"text": message},
-                retrieveAndGenerateConfiguration={
-                    "type": "KNOWLEDGE_BASE",
-                    "knowledgeBaseConfiguration": {
-                        "knowledgeBaseId": kb_id,
-                        "modelArn": f"arn:aws:bedrock:us-east-1::foundation-model/{model_id}",
-                        "retrievalConfiguration": {
-                            "vectorSearchConfiguration": {"numberOfResults": 8}
-                        },
-                        "generationConfiguration": {
-                            "promptTemplate": {
-                                "textPromptTemplate": (
-                                    "You are aGorA's CI/CD assistant. Use the retrieved pipeline "
-                                    "failure and remediation history to answer the question accurately. "
-                                    "Cite specific repos and dates when you reference evidence. "
-                                    "If the retrieved context doesn't contain enough information, say so "
-                                    "rather than guessing.\n\n"
-                                    "$search_results$\n\nQuestion: $query$"
-                                )
-                            }
-                        },
-                    },
-                },
-            ),
-        )
-        answer = resp.get("output", {}).get("text", "").strip()
-        citations = resp.get("citations", [])
-        sources = []
-        for c in citations:
-            for ref in c.get("retrievedReferences", []):
-                loc = ref.get("location", {}).get("s3Location", {})
-                uri = loc.get("uri", "")
-                snippet = ref.get("content", {}).get("text", "")[:200]
-                if uri:
-                    sources.append({"uri": uri, "snippet": snippet})
-
-        if not answer:
-            return None
-        return ChatResponse(answer=answer, data=sources or None)
-    except Exception as exc:
-        logger.warning("KB retrieve_and_generate failed: %s", exc)
-        return None
-
-
 async def _answer_with_investigator(message: str) -> ChatResponse:
     """Hand off to agora-worker's Investigator Agent (synchronous HTTP call,
     not Celery — chat needs a request/response cycle here, not async dispatch)."""
@@ -228,21 +171,5 @@ async def chat(
 
     if intent == "COUNT":
         return await _answer_with_analytics(db, req.message)
-
-    # Try KB retrieve-and-generate first (grounded in actual stored remediation
-    # docs). Falls back to the investigator agent when KB is empty or errors.
-    if settings.BEDROCK_KB_ID:
-        import boto3 as _boto3
-        # KB and its agent-runtime live in the infra account — use the pod's
-        # IRSA role directly, not the cross-account Bedrock role.
-        kb_client = _boto3.client(
-            "bedrock-agent-runtime",
-            region_name=settings.AWS_REGION,
-        )
-        kb_answer = await _answer_with_kb(
-            req.message, settings.BEDROCK_KB_ID, settings.BEDROCK_MODEL_ID, kb_client
-        )
-        if kb_answer:
-            return kb_answer
 
     return await _answer_with_investigator(req.message)
