@@ -48,12 +48,6 @@ jobs:
   push:
     name: Push to ECR
     needs: build
-    # needs: build alone is not sufficient to block on a Trivy failure --
-    # reusable-workflow-call failure propagation to the calling job's
-    # status isn't documented/guaranteed, so this checks trivy_result
-    # explicitly rather than relying on it. Trivy now runs on every event
-    # (not just PRs, where it used to be PR-only and never actually
-    # gated what reaches ECR).
     if: |
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
       github.event_name == 'push' &&
