@@ -53,7 +53,7 @@ QUESTION: {question}
 Respond with exactly one word: COUNT or INVESTIGATE"""
 
 
-async def _classify_intent(message: str, model_id: str, client, guardrail_cfg: dict) -> str:
+async def _classify_intent(message: str, model_id: str, client) -> str:
     """Nova-based intent check. Defaults to INVESTIGATE on any failure — the
     investigator path degrades gracefully (worst case, an unnecessary search),
     while wrongly routing a real question to the count path returns nothing
@@ -63,7 +63,6 @@ async def _classify_intent(message: str, model_id: str, client, guardrail_cfg: d
             modelId=model_id,
             messages=[{"role": "user", "content": [{"text": _INTENT_PROMPT.format(question=message)}]}],
             inferenceConfig={"maxTokens": 16, "temperature": 0},
-            **guardrail_cfg,
         )
         raw = resp["output"]["message"]["content"][0]["text"].strip().upper()
         return "COUNT" if "COUNT" in raw else "INVESTIGATE"
@@ -218,15 +217,14 @@ async def chat(
     import boto3
 
     from app.core.config import settings
-    from app.services.bedrock_client import _bedrock_boto3_kwargs, _guardrail_config
+    from app.services.bedrock_client import _bedrock_boto3_kwargs
 
-    guardrail_cfg = _guardrail_config()
     client = boto3.client(
         "bedrock-runtime",
         region_name=settings.AWS_REGION,
         **_bedrock_boto3_kwargs(),
     )
-    intent = await _classify_intent(req.message, settings.BEDROCK_CHAT_MODEL_ID, client, guardrail_cfg)
+    intent = await _classify_intent(req.message, settings.BEDROCK_CHAT_MODEL_ID, client)
 
     if intent == "COUNT":
         return await _answer_with_analytics(db, req.message)
