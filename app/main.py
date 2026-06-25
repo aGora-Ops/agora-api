@@ -121,7 +121,9 @@ async def readiness() -> JSONResponse:
         checks["database"] = f"error: {exc}"
 
     try:
-        redis = await Redis.from_url(settings.REDIS_URL)
+        import ssl as _ssl
+        ssl_kwargs = {"ssl_cert_reqs": _ssl.CERT_NONE} if settings.REDIS_URL.startswith("rediss://") else {}
+        redis = await Redis.from_url(settings.REDIS_URL, **ssl_kwargs)
         await redis.ping()
         await redis.aclose()
         checks["redis"] = "ok"
