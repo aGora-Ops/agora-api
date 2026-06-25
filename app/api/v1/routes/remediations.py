@@ -227,10 +227,10 @@ async def raise_pr(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found")
 
-    from app.services.github_app import get_installation_token, github_app_configured
+    from app.services.github_app import get_installation_token_for_org, github_app_configured
 
     if github_app_configured():
-        token = await get_installation_token(run.org_login)
+        token = await get_installation_token_for_org(run.org_login)
         logger.info("Using GitHub App token for PR creation (fine-grained permissions)")
     else:
         token = decrypt_token(user.access_token_encrypted)
