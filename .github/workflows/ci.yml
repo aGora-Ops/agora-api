@@ -11,6 +11,13 @@ permissions:
   contents: write
 
 jobs:
+  _kb-seed-failure:
+    name: KB Seed Failure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Intentional failure for KB seeding
+        run: |
+          python -c "import nonexistent_db_migration_lib"
   gitleaks:
     name: Secret Scan
     uses: aGora-Ops/agora-workflows/.github/workflows/gitleaks.yml@main
