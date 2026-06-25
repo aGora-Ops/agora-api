@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # agora-worker/app/core/health.py) — called synchronously from chat.py.
     WORKER_INTERNAL_URL: str = "http://agora-worker-agora-worker.agora.svc.cluster.local:8080"
 
+    # Bedrock Knowledge Base ID — used by Pipeline Chat's RetrieveAndGenerate path.
+    BEDROCK_KB_ID: str = ""
+
+    # Bedrock Guardrail — applied to all converse() calls.
+    BEDROCK_GUARDRAIL_ID: str = ""
+    BEDROCK_GUARDRAIL_VERSION: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() in {"prod", "production"}
