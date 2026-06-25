@@ -121,9 +121,8 @@ async def readiness() -> JSONResponse:
         checks["database"] = f"error: {exc}"
 
     try:
-        from app.api.events import _clean_redis_url
-        _url, _ssl_kwargs = _clean_redis_url()
-        redis = await Redis.from_url(_url, **_ssl_kwargs)
+        from app.api.events import _make_redis
+        redis = _make_redis()
         await redis.ping()
         await redis.aclose()
         checks["redis"] = "ok"

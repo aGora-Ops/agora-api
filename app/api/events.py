@@ -19,27 +19,40 @@ logger = logging.getLogger(__name__)
 
 REDIS_CHANNEL = "agora:events"
 
-def _clean_redis_url() -> tuple[str, dict]:
-    """Strip ssl_cert_reqs from the URL (redis-py rejects the string value)
-    and return it as the proper ssl.CERT_NONE integer kwarg instead."""
-    url = settings.REDIS_URL
-    if not url.startswith("rediss://"):
-        return url, {}
-    import ssl
+def _make_redis(decode_responses: bool = False) -> Redis:
+    """Build a Redis client that handles ElastiCache TLS correctly.
+
+    redis-py 5.x does not parse ssl_cert_reqs from the URL query string.
+    The only working path for CERT_NONE is ConnectionPool.from_url with
+    connection_class=SSLConnection and ssl_cert_reqs='none' as a kwarg.
+    """
     from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    from redis.asyncio.connection import ConnectionPool, SSLConnection
+
+    url = settings.REDIS_URL
     parsed = urlparse(url)
     qs = parse_qs(parsed.query, keep_blank_values=True)
     qs.pop("ssl_cert_reqs", None)
-    clean = urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
-    return clean, {"ssl_cert_reqs": ssl.CERT_NONE}
+    clean_url = urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
+
+    if clean_url.startswith("rediss://"):
+        pool = ConnectionPool.from_url(
+            clean_url,
+            connection_class=SSLConnection,
+            ssl_cert_reqs="none",
+            decode_responses=decode_responses,
+        )
+    else:
+        pool = ConnectionPool.from_url(clean_url, decode_responses=decode_responses)
+
+    return Redis(connection_pool=pool)
 
 
 async def redis_event_listener() -> None:
     """Subscribe to the agora:events Redis channel and broadcast to WS clients."""
     while True:
         try:
-            url, ssl_kwargs = _clean_redis_url()
-            redis = await Redis.from_url(url, decode_responses=True, **ssl_kwargs)
+            redis = _make_redis(decode_responses=True)
             pubsub = redis.pubsub()
             await pubsub.subscribe(REDIS_CHANNEL)
             logger.info("Subscribed to Redis channel %s", REDIS_CHANNEL)
