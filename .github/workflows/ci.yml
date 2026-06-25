@@ -22,7 +22,7 @@ jobs:
     uses: aGora-Ops/agora-workflows/.github/workflows/python-ci.yml@main
     with:
       working-directory: .
-      python-version: "99"
+      python-version: "3.12"
 
   sonar:
     name: SonarCloud Scan
