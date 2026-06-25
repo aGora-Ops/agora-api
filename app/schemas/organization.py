@@ -10,17 +10,12 @@ class OrganizationBase(BaseModel):
     avatar_url: str | None = None
 
 
-class OrganizationCreate(OrganizationBase):
-    """Request body to connect a new organization."""
-    pass
-
-
 class OrganizationResponse(OrganizationBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     github_org_id: int
-    webhook_id: int | None = None
+    installation_id: int | None = None
     sync_status: str
     owner_id: uuid.UUID
     created_at: datetime

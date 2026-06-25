@@ -17,8 +17,9 @@ class Organization(Base):
     login: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    webhook_secret: Mapped[str] = mapped_column(String(512), nullable=False)
+    webhook_secret: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     webhook_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    installation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -19,11 +19,20 @@ logger = logging.getLogger(__name__)
 
 REDIS_CHANNEL = "agora:events"
 
+def _redis_ssl_kwargs() -> dict:
+    if settings.REDIS_URL.startswith("rediss://"):
+        import ssl
+        return {"ssl_cert_reqs": ssl.CERT_NONE}
+    return {}
+
+
 async def redis_event_listener() -> None:
     """Subscribe to the agora:events Redis channel and broadcast to WS clients."""
     while True:
         try:
-            redis = await Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            redis = await Redis.from_url(
+                settings.REDIS_URL, decode_responses=True, **_redis_ssl_kwargs()
+            )
             pubsub = redis.pubsub()
             await pubsub.subscribe(REDIS_CHANNEL)
             logger.info("Subscribed to Redis channel %s", REDIS_CHANNEL)
