@@ -48,7 +48,7 @@ async def github_login(request: Request) -> RedirectResponse:
         state,
         httponly=True,
         samesite="lax",
-        secure=settings.cookie_secure,
+        secure=False,
         max_age=600,
     )
     return response
