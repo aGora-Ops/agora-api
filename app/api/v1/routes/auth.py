@@ -3,12 +3,13 @@ import secrets
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AUTH_COOKIE_NAME, get_current_user
+from app.api.events import _make_redis
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.core.security import create_access_token, decrypt_token, encrypt_token
@@ -28,6 +29,11 @@ GITHUB_API_URL = "https://api.github.com"
 async def github_login(request: Request) -> RedirectResponse:
     """Redirect the browser to GitHub's OAuth authorization page."""
     state = secrets.token_urlsafe(16)
+    redis = _make_redis(decode_responses=True)
+    try:
+        await redis.setex(f"oauth_state:{state}", 600, "1")
+    finally:
+        await redis.aclose()
     params = {
         "client_id": settings.GITHUB_CLIENT_ID,
         "redirect_uri": settings.GITHUB_REDIRECT_URI,
@@ -42,16 +48,7 @@ async def github_login(request: Request) -> RedirectResponse:
         "state": state,
     }
     url = f"{GITHUB_AUTH_URL}?{urlencode(params)}"
-    response = RedirectResponse(url=url)
-    response.set_cookie(
-        "oauth_state",
-        state,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-        max_age=600,
-    )
-    return response
+    return RedirectResponse(url=url)
 
 @router.get("/callback")
 @limiter.limit("10/minute")
@@ -61,10 +58,17 @@ async def github_callback(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    oauth_state: str | None = Cookie(default=None),
 ) -> RedirectResponse:
     """Exchange OAuth code for an access token, upsert user, and set JWT cookie."""
-    if not oauth_state or oauth_state != state:
+    redis = _make_redis(decode_responses=True)
+    try:
+        key = f"oauth_state:{state}"
+        stored = await redis.get(key)
+        if stored:
+            await redis.delete(key)
+    finally:
+        await redis.aclose()
+    if not stored:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
 
     async with httpx.AsyncClient() as client:
@@ -140,7 +144,6 @@ async def github_callback(
         secure=settings.cookie_secure,
         path="/",
     )
-    redirect.delete_cookie("oauth_state", path="/")
     return redirect
 
 @router.get("/me", response_model=UserMe)
