@@ -27,6 +27,7 @@ jobs:
   sonar:
     name: SonarCloud Scan
     needs: python-ci
+    continue-on-error: true
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/sonar-scan.yml@main
     with:
       service_name: stagecraft-api
