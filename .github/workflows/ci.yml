@@ -22,7 +22,7 @@ jobs:
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/python-ci.yml@main
     with:
       working-directory: .
-      python-version: "3.99"
+      python-version: "3.12"
 
   build:
     name: Build & Scan
