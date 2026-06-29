@@ -128,15 +128,15 @@ def _scalar_one_or_none_result(value) -> MagicMock:
 
 
 class TestRunsDataIsolation:
-    """Regression tests for the cross-tenant data leak: any authenticated user
-    could list/view/fetch-logs for ANY org's workflow runs, not just their own
-    connected organizations. _user was resolved but never used to filter."""
+    """Tests for platform-wide run visibility: any authenticated user can view
+    runs from all connected organizations (shared view for demos and teams)."""
 
-    async def test_list_recent_runs_empty_when_user_owns_no_orgs(self):
+    async def test_list_recent_runs_empty_when_no_orgs_connected(self):
+        """Platform has no connected orgs → empty list returned."""
         from app.api.v1.routes.runs import list_recent_runs
 
         db = AsyncMock()
-        db.execute.return_value = _scalars_result([])  # owned_org_logins -> []
+        db.execute.return_value = _scalars_result([])  # no orgs in platform
 
         result = await list_recent_runs(
             org_login=None, repo_name=None, run_status=None, conclusion=None,
@@ -144,32 +144,34 @@ class TestRunsDataIsolation:
         )
         assert result.total == 0
         assert result.runs == []
-        # Must short-circuit before ever querying workflow_runs.
+        # Short-circuits before querying workflow_runs.
         assert db.execute.call_count == 1
 
-    async def test_list_recent_runs_rejects_unowned_org_login(self):
+    async def test_list_recent_runs_rejects_unknown_org_login(self):
+        """org_login not in DB at all must return 404."""
         from app.api.v1.routes.runs import list_recent_runs
         from fastapi import HTTPException
 
         db = AsyncMock()
-        db.execute.return_value = _scalars_result(["acme"])  # user only owns "acme"
+        db.execute.return_value = _scalars_result(["acme"])  # only "acme" connected
 
         with pytest.raises(HTTPException) as exc_info:
             await list_recent_runs(
-                org_login="someone-elses-org", repo_name=None, run_status=None,
+                org_login="not-registered-org", repo_name=None, run_status=None,
                 conclusion=None, limit=20, offset=0, user=_make_user(), db=db,
             )
         assert exc_info.value.status_code == 404
 
-    async def test_list_recent_runs_scopes_query_to_owned_logins(self):
+    async def test_list_recent_runs_shows_all_connected_orgs(self):
+        """Any authenticated user sees runs from all connected orgs."""
         from app.api.v1.routes.runs import list_recent_runs
 
         run = _make_run(org_login="acme")
         db = AsyncMock()
         db.execute.side_effect = [
-            _scalars_result(["acme"]),       # owned_org_logins
-            _scalar_one_result(1),           # count_query
-            _scalars_result([run]),          # query
+            _scalars_result(["acme", "other-org"]),  # all platform orgs
+            _scalar_one_result(1),                   # count_query
+            _scalars_result([run]),                  # query
         ]
 
         result = await list_recent_runs(
@@ -179,48 +181,37 @@ class TestRunsDataIsolation:
         assert result.total == 1
         assert len(result.runs) == 1
 
-    async def test_get_run_hides_run_from_other_users_org(self):
-        """The exact bug: a run belonging to an org the current user never
-        connected must 404, not be returned."""
+    async def test_get_run_visible_to_any_authenticated_user(self):
+        """Any logged-in user can view any run — 404 only when run ID doesn't exist."""
+        from app.api.v1.routes.runs import get_run
+
+        run = _make_run(org_login="some-org")
+        db = AsyncMock()
+        db.execute.return_value = _scalar_one_or_none_result(run)
+
+        response = await get_run(run_id=run.id, _user=_make_user(), db=db)
+        assert response["org_login"] == "some-org"
+
+    async def test_get_run_returns_404_for_missing_run(self):
+        """Non-existent run ID always returns 404."""
         from app.api.v1.routes.runs import get_run
         from fastapi import HTTPException
 
-        other_users_run = _make_run(org_login="someone-elses-org")
         db = AsyncMock()
-        db.execute.side_effect = [
-            _scalars_result(["acme"]),  # current user only owns "acme"
-            _scalar_one_or_none_result(other_users_run),
-        ]
+        db.execute.return_value = _scalar_one_or_none_result(None)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_run(run_id=other_users_run.id, user=_make_user(), db=db)
+            await get_run(run_id=uuid.uuid4(), _user=_make_user(), db=db)
         assert exc_info.value.status_code == 404
 
-    async def test_get_run_allows_run_from_owned_org(self):
-        from app.api.v1.routes.runs import get_run
-
-        own_run = _make_run(org_login="acme")
-        db = AsyncMock()
-        db.execute.side_effect = [
-            _scalars_result(["acme"]),
-            _scalar_one_or_none_result(own_run),
-        ]
-
-        response = await get_run(run_id=own_run.id, user=_make_user(), db=db)
-        assert response["org_login"] == "acme"
-
-    async def test_get_run_logs_hides_run_from_other_users_org(self):
+    async def test_get_run_logs_returns_404_for_missing_run(self):
+        """Non-existent run ID returns 404 from get_run_logs."""
         from app.api.v1.routes.runs import get_run_logs
         from fastapi import HTTPException
 
-        other_users_run = _make_run(org_login="someone-elses-org")
         db = AsyncMock()
-        db.execute.side_effect = [
-            _scalars_result(["acme"]),
-            _scalar_one_or_none_result(other_users_run),
-        ]
+        db.execute.return_value = _scalar_one_or_none_result(None)
 
         with pytest.raises(HTTPException) as exc_info:
-            with patch("app.core.security.decrypt_token", return_value="tok"):
-                await get_run_logs(run_id=other_users_run.id, user=_make_user(), db=db)
+            await get_run_logs(run_id=uuid.uuid4(), _user=_make_user(), db=db)
         assert exc_info.value.status_code == 404
