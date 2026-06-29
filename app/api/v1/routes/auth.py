@@ -23,14 +23,31 @@ GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL = "https://api.github.com"
 
+def _build_redirect_uri(request: Request) -> str:
+    """Build the OAuth callback URI from the incoming request host.
+
+    This keeps the cookie domain and the redirect URI on the same host,
+    so the flow works regardless of whether the user arrives via the NLB
+    URL or a custom domain (e.g. stagecraft.ustpace.com).
+    """
+    forwarded_host = request.headers.get("x-forwarded-host")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "http")
+    if forwarded_host:
+        return f"{forwarded_proto}://{forwarded_host}/api/v1/auth/callback"
+    host = request.headers.get("host", "")
+    scheme = request.url.scheme
+    return f"{scheme}://{host}/api/v1/auth/callback"
+
+
 @router.get("/github")
 @limiter.limit("10/minute")
 async def github_login(request: Request) -> RedirectResponse:
     """Redirect the browser to GitHub's OAuth authorization page."""
     state = secrets.token_urlsafe(16)
+    redirect_uri = _build_redirect_uri(request)
     params = {
         "client_id": settings.GITHUB_CLIENT_ID,
-        "redirect_uri": settings.GITHUB_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         # workflow scope is required to create/update files under .github/workflows/ —
         # without it GitHub 404s the Contents API write (masked, like private-repo access)
         # even though repo grants write everywhere else.
