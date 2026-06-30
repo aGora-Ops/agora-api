@@ -22,7 +22,7 @@ jobs:
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/python-ci.yml@main
     with:
       working-directory: .
-      python-version: "3.99"
+      python-version: "3.12"
 
   build:
     name: Build & Scan
@@ -39,9 +39,9 @@ jobs:
     name: Push to ECR
     needs: build
     if: |
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
+      (github.ref =='refs/heads/main' || github.ref =='refs/heads/develop') &&
       github.event_name == 'push' &&
-      needs.build.outputs.trivy_result != 'failure'
+      needs.build.outputs.trivy_result!= 'failure'
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/push-to-ecr.yml@main
     with:
       service_name: stagecraft-api
@@ -53,7 +53,7 @@ jobs:
   helm-update:
     name: Update Helm Tag
     needs: push
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'
+    if: (github.ref =='refs/heads/main' || github.ref =='refs/heads/develop') && github.event_name == 'push'
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/helm-update.yml@main
     with:
       service_name: stagecraft-api
